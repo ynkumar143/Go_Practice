@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"runtime"
 	"time"
-	"math/rand"
 	"strings"
 	"reflect"
 )
@@ -14,7 +13,6 @@ import (
 const (
 	Nats_URL    = "nats://localhost:4222"
 )
-
 
 type natConn struct{
 	nats_connct *nats.Conn
@@ -76,11 +74,9 @@ func main(){
 
 	fmt.Println("Subscription Information Before Unsubscribing", reflect.Indirect(reflect.ValueOf(savednatConn.nats_connct).Elem().Field(14)))
 
-	fmt.Println("Unsubscription Starts")
-
 	//Here I want to Unsubscribe to the Topic(i.e First Subscription of two subscriptions with same topic).
 
-	UnsubscribeTopic(savednatConn)
+	UnsubscribeTopic(savednatConn, userOneInfo)
 
 	<-time.After(2 * time.Second)
 
@@ -95,21 +91,22 @@ func SubscribeInfo(recvdnatConn *natConn, recvduserInfo *userinfo){
 	latest_topic := recvduserInfo.FirstName + "." + recvduserInfo.LastName
 
 	handle := func(m *nats.Msg) {
-		if strings.EqualFold(m.Reply, "Unsubscribe"){
 			if recvdnatConn.unsub_req{
-				m.Sub.Unsubscribe()
-				recvdnatConn.unsub_req = false
-			}
+				if strings.EqualFold(m.Reply, "Unsubscribe" + recvduserInfo.InfoApi){
+					m.Sub.Unsubscribe()
+					recvdnatConn.unsub_req = false
+				}
 			return
 		}
 		fmt.Println("Message Received  on Topic: <--", m.Subject, "\nMessage:", string(m.Data))
 
 		fmt.Println("To URL:", recvduserInfo.InfoApi)
-		time.Sleep(time.Duration(rand.Intn(1e3))*time.Millisecond)
+		<-time.After(1 * time.Second)
 		// Code for the message received will be sent to API.
 		// As this handle hits two times on publishing to that topic the message will send to two API's
 	}
 
+	fmt.Println("Subscribing for Topic:", latest_topic)
 	_ , nats_sub_err := recvdnatConn.nats_connct.Subscribe(latest_topic, handle)
 	if nats_sub_err != nil{
 		recvdnatConn.nats_connct.Close()
@@ -118,8 +115,8 @@ func SubscribeInfo(recvdnatConn *natConn, recvduserInfo *userinfo){
 }
 
 func PublishMessage(recvdnatConn *natConn){
-
 	published_topic := "Tree.Branch"
+	fmt.Println("Message Publishing on Topic:", published_topic)
 	//Building Message Structure
 
 	mes := nats.Msg{}
@@ -132,17 +129,19 @@ func PublishMessage(recvdnatConn *natConn){
 	}
 }
 
-func UnsubscribeTopic(recvdnatConn *natConn){
+func UnsubscribeTopic(recvdnatConn *natConn, recvduserinfo *userinfo){
 	//Here to access Subscription details I have to message that is handling the subscription.
 
 	//So I am doing a publish message with reply message as unsubscribe.
 
 	unsubscribe_topic := "Tree.Branch"
+
+	fmt.Println("Unsubscribing from Topic", unsubscribe_topic)
 	//Building Message Structure
 
 	mes := nats.Msg{}
 	mes.Subject = unsubscribe_topic
-	mes.Reply = "Unsubscribe"
+	mes.Reply = "Unsubscribe" + recvduserinfo.InfoApi
 	recvdnatConn.unsub_req = true
 
 	// Publish message on subject to Unsubscribe
